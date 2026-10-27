@@ -1,0 +1,326 @@
+%{
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdarg.h>
+#include "compilador.h"
+
+int  yylex(void);
+void yyerror(const char *msg);
+
+extern FILE *yyin;
+extern int cur_tok_line, prev_tok_line;
+
+/* Rango permitido para NIVEL*/
+#define NIVEL_MIN 1
+#define NIVEL_MAX 5
+
+/* Tabla de simbolos */
+#define MAX_SIMBOLOS 256
+
+typedef enum { SYM_LUZ, SYM_INCIDENTE, SYM_SENSOR } TipoSimbolo;
+
+typedef struct {
+    char        nombre[64];
+    TipoSimbolo tipo;
+    int         linea;
+    int         estado;      /* LUZ: 1 = ON, 0 = OFF; otros: -1 */
+} Simbolo;
+
+static Simbolo tabla[MAX_SIMBOLOS];
+static int     n_simbolos = 0;
+
+static int temp_declarada = 0;
+static int temp_valor     = 0;
+
+static const char *nombre_tipo(TipoSimbolo t)
+{
+    switch (t) {
+        case SYM_LUZ:       return "LUZ";
+        case SYM_INCIDENTE: return "INCIDENTE";
+        default:            return "SENSOR";
+    }
+}
+
+static int buscar(const char *nombre)
+{
+    int i;
+    for (i = 0; i < n_simbolos; i++)
+        if (strcmp(tabla[i].nombre, nombre) == 0) return i;
+    return -1;
+}
+
+static void declarar(const char *nombre, TipoSimbolo tipo, int linea, int estado)
+{
+    int i = buscar(nombre);
+    if (i >= 0) {
+        registrar_error(ERR_SEM, linea,
+            "'%s' ya fue declarado como %s en la linea %d (declaracion duplicada)",
+            nombre, nombre_tipo(tabla[i].tipo), tabla[i].linea);
+        return;
+    }
+    if (n_simbolos >= MAX_SIMBOLOS) {
+        registrar_error(ERR_SEM, linea, "tabla de simbolos llena");
+        return;
+    }
+    strncpy(tabla[n_simbolos].nombre, nombre, sizeof(tabla[0].nombre) - 1);
+    tabla[n_simbolos].nombre[sizeof(tabla[0].nombre) - 1] = '\0';
+    tabla[n_simbolos].tipo   = tipo;
+    tabla[n_simbolos].linea  = linea;
+    tabla[n_simbolos].estado = estado;
+    n_simbolos++;
+}
+
+/* Verifica que 'nombre' exista y sea del tipo que exige la accion */
+static void usar(const char *nombre, TipoSimbolo esperado, const char *accion, int linea)
+{
+    int i = buscar(nombre);
+    if (i < 0)
+        registrar_error(ERR_SEM, linea,
+            "'%s' no ha sido declarado (usado en %s)", nombre, accion);
+    else if (tabla[i].tipo != esperado)
+        registrar_error(ERR_SEM, linea,
+            "%s requiere un %s, pero '%s' fue declarado como %s (linea %d)",
+            accion, nombre_tipo(esperado), nombre, nombre_tipo(tabla[i].tipo),
+            tabla[i].linea);
+}
+
+/* Solo verifica existencia (para MOSTRAR) */
+static void existe(const char *nombre, const char *accion, int linea)
+{
+    if (buscar(nombre) < 0)
+        registrar_error(ERR_SEM, linea,
+            "'%s' no ha sido declarado (usado en %s)", nombre, accion);
+}
+
+static void verificar_temp(int linea, const char *contexto)
+{
+    if (!temp_declarada)
+        registrar_error(ERR_SEM, linea,
+            "TEMPERATURA no ha sido declarada (usada en %s)", contexto);
+}
+
+/* ------------------------ Registro de errores ------------------------ */
+#define MAX_ERRORES 1000
+
+typedef struct { int tipo; int linea; char msg[320]; } Error;
+
+static Error errores[MAX_ERRORES];
+static int   n_errores = 0;                 /* guardados para el listado */
+static int   cuenta[NUM_TIPOS_ERR] = {0};   /* contadores reales */
+static int   ultima_linea_lex = -1;
+
+void registrar_error(int tipo, int linea, const char *fmt, ...)
+{
+    va_list ap;
+    cuenta[tipo]++;
+    if (tipo == ERR_LEX) ultima_linea_lex = linea;
+    if (n_errores >= MAX_ERRORES) return;
+    errores[n_errores].tipo  = tipo;
+    errores[n_errores].linea = linea;
+    va_start(ap, fmt);
+    vsnprintf(errores[n_errores].msg, sizeof(errores[0].msg), fmt, ap);
+    va_end(ap);
+    n_errores++;
+}
+
+/* Reemplaza todas las apariciones de 'de' por 'a' */
+static void reemplazar(const char *src, const char *de, const char *a,
+                       char *dst, size_t n)
+{
+    size_t ld = strlen(de), la = strlen(a), k = 0;
+    while (*src && k + la + 1 < n) {
+        if (strncmp(src, de, ld) == 0) {
+            memcpy(dst + k, a, la);
+            k += la;
+            src += ld;
+        } else {
+            dst[k++] = *src++;
+        }
+    }
+    dst[k] = '\0';
+}
+
+/* Llamada por bison ante un error de sintaxis */
+void yyerror(const char *msg)
+{
+    char b1[256], b2[256], b3[256], b4[256];
+    int linea = cur_tok_line;
+    const char *esp = strstr(msg, "expecting");
+
+    /* Si faltaba un ';' y el token inesperado esta en una linea posterior,
+       el error real esta al final de la linea anterior */
+    if (esp && strstr(esp, "punto y coma") &&
+        prev_tok_line > 0 && cur_tok_line > prev_tok_line)
+        linea = prev_tok_line;
+
+    /* Si ya hubo un error lexico en esa linea, se evita el error en cascada */
+    if (linea == ultima_linea_lex || cur_tok_line == ultima_linea_lex) return;
+
+    reemplazar(msg, "syntax error, unexpected ", "no se esperaba ", b1, sizeof b1);
+    reemplazar(b1,  ", expecting ",              ": se esperaba ", b2, sizeof b2);
+    reemplazar(b2,  " or ",                      " o ",            b3, sizeof b3);
+    reemplazar(b3,  "syntax error",              "error de sintaxis", b4, sizeof b4);
+    registrar_error(ERR_SIN, linea, "%s", b4);
+}
+
+/* ------------------------------ Reporte ------------------------------ */
+static void imprimir_reporte(void)
+{
+    static const char *nombres[NUM_TIPOS_ERR] =
+        { "lexicos", "sintacticos", "semanticos" };
+    int t, i, total = cuenta[0] + cuenta[1] + cuenta[2];
+
+    printf("========== RESULTADO DE LA COMPILACION ==========\n");
+    for (t = 0; t < NUM_TIPOS_ERR; t++) {
+        printf("\nErrores %s: %d\n", nombres[t], cuenta[t]);
+        for (i = 0; i < n_errores; i++)
+            if (errores[i].tipo == t)
+                printf("  Linea %d: %s\n", errores[i].linea, errores[i].msg);
+    }
+    if (n_errores >= MAX_ERRORES)
+        printf("\n(Se muestran solo los primeros %d errores; los contadores son totales)\n",
+               MAX_ERRORES);
+
+    printf("\nTotal de errores: %d\n", total);
+    printf(total == 0 ? "Compilacion EXITOSA.\n" : "Compilacion con ERRORES.\n");
+
+    printf("\n---------- Tabla de simbolos ----------\n");
+    if (temp_declarada) printf("  TEMPERATURA = %d\n", temp_valor);
+    for (i = 0; i < n_simbolos; i++) {
+        printf("  %-20s %-10s (linea %d)", tabla[i].nombre,
+               nombre_tipo(tabla[i].tipo), tabla[i].linea);
+        if (tabla[i].tipo == SYM_LUZ)
+            printf("  estado: %s", tabla[i].estado ? "ON" : "OFF");
+        printf("\n");
+    }
+}
+%}
+
+%locations
+%define parse.error verbose
+
+%union {
+    int   num;
+    char *str;
+}
+
+%token TK_END 0 "fin de archivo"
+
+%token TK_LUZ         "LUZ"
+%token TK_TEMPERATURA "TEMPERATURA"
+%token TK_SI          "SI"
+%token TK_ENTONCES    "ENTONCES"
+%token TK_ENCENDER    "ENCENDER"
+%token TK_APAGAR      "APAGAR"
+%token TK_MOSTRAR     "MOSTRAR"
+%token TK_FIN         "FIN"
+%token TK_INCIDENTE   "INCIDENTE"
+%token TK_SENSOR      "SENSOR"
+%token TK_NIVEL       "NIVEL"
+%token TK_REPORTAR    "REPORTAR"
+%token TK_ON          "ON"
+%token TK_OFF         "OFF"
+%token TK_SEMI        "punto y coma"
+%token TK_RELOP       "operador relacional"
+%token <str> TK_ID    "identificador"
+%token <num> TK_NUM   "número"
+
+%type <num> estado
+
+%destructor { free($$); } <str>
+
+%%
+
+/* Regla 1: un programa es una o mas instrucciones consecutivas */
+programa
+    : lista_instr
+    ;
+
+lista_instr
+    : instruccion
+    | lista_instr instruccion
+    ;
+
+instruccion
+    : declaracion
+    | accion
+    | condicional
+    | error TK_SEMI                  { yyerrok; }   /* recuperacion: salta hasta ';' */
+    ;
+
+/* Declaraciones de luces, temperatura, incidentes, sensores y nivel */
+declaracion
+    : TK_LUZ TK_ID estado TK_SEMI
+        { declarar($2, SYM_LUZ, @2.first_line, $3); free($2); }
+    | TK_INCIDENTE TK_ID TK_SEMI
+        { declarar($2, SYM_INCIDENTE, @2.first_line, -1); free($2); }
+    | TK_SENSOR TK_ID TK_SEMI
+        { declarar($2, SYM_SENSOR, @2.first_line, -1); free($2); }
+    | TK_TEMPERATURA TK_NUM TK_SEMI
+        { temp_declarada = 1; temp_valor = $2; }
+    | TK_NIVEL TK_NUM TK_SEMI
+        {
+            if ($2 < NIVEL_MIN || $2 > NIVEL_MAX)
+                registrar_error(ERR_SEM, @2.first_line,
+                    "NIVEL %d fuera de rango (permitido de %d a %d)",
+                    $2, NIVEL_MIN, NIVEL_MAX);
+        }
+    ;
+
+estado
+    : TK_ON                          { $$ = 1; }
+    | TK_OFF                         { $$ = 0; }
+    ;
+
+/* Acciones de control */
+accion
+    : TK_ENCENDER TK_ID TK_SEMI
+        { usar($2, SYM_LUZ, "ENCENDER", @2.first_line); free($2); }
+    | TK_APAGAR TK_ID TK_SEMI
+        { usar($2, SYM_LUZ, "APAGAR", @2.first_line); free($2); }
+    | TK_REPORTAR TK_ID TK_SEMI
+        { usar($2, SYM_INCIDENTE, "REPORTAR", @2.first_line); free($2); }
+    | TK_MOSTRAR TK_ID TK_SEMI
+        { existe($2, "MOSTRAR", @2.first_line); free($2); }
+    | TK_MOSTRAR TK_TEMPERATURA TK_SEMI
+        { verificar_temp(@2.first_line, "MOSTRAR"); }
+    ;
+
+/* SI TEMPERATURA > 28 ENTONCES APAGAR luz; FIN   (segun el Ejemplo 2) */
+condicional
+    : TK_SI TK_TEMPERATURA { verificar_temp(@2.first_line, "SI"); }
+      TK_RELOP TK_NUM TK_ENTONCES accion TK_FIN opt_semi
+    ;
+
+/* El enunciado es ambiguo con FIN; se acepta con o sin ';' */
+opt_semi
+    : /* vacio */
+    | TK_SEMI
+    ;
+
+%%
+
+int main(int argc, char **argv)
+{
+    int total;
+
+    if (argc < 2) {
+        fprintf(stderr, "Uso: %s archivo.lab\n", argv[0]);
+        return 2;
+    }
+    yyin = fopen(argv[1], "r");
+    if (!yyin) {
+        perror(argv[1]);
+        return 2;
+    }
+
+    printf("Compilando %s ...\n\n", argv[1]);
+    yyparse();
+    fclose(yyin);
+
+    imprimir_reporte();
+    total = cuenta[0] + cuenta[1] + cuenta[2];
+    return total > 0 ? 1 : 0;
+}
