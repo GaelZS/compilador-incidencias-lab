@@ -1,23 +1,17 @@
 %option noyywrap yylineno 8bit nounput noinput
 
 %{
-/* ===================================================================
-   ANALIZADOR LEXICO - Mini lenguaje de incidencias de laboratorio
-   Genera tokens y detecta errores lexicos:
-     - simbolos no reconocidos
-     - identificadores que inician con digito (ej. 2luz)
-     - palabras reservadas mal escritas (ej. apagar, Luz)
-   =================================================================== */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "compilador.h"
 #include "lab.tab.h"
 
-/* Linea del token actual y del anterior (los usa yyerror en lab.y) */
+
 int cur_tok_line = 0, prev_tok_line = 0;
 
-/* Registra la linea del token, la guarda en yylloc y devuelve el token */
+
 #define TOK(t) (prev_tok_line = cur_tok_line, cur_tok_line = yylineno, \
                 yylloc.first_line = yylloc.last_line = yylineno, (t))
 
@@ -27,7 +21,7 @@ static const char *RESERVADAS[] = {
     "ON", "OFF", NULL
 };
 
-/* Compara sin distinguir mayusculas/minusculas */
+
 static int igual_ci(const char *a, const char *b)
 {
     while (*a && *b) {
@@ -39,8 +33,7 @@ static int igual_ci(const char *a, const char *b)
     return *a == *b;
 }
 
-/* Si 's' es una reservada escrita con otras mayusculas/minusculas,
-   devuelve la forma correcta; si no, NULL */
+
 static const char *reservada_equivalente(const char *s)
 {
     int i;
