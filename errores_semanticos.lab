@@ -1,0 +1,11 @@
+LUZ luz_a ON;
+LUZ luz_a OFF;
+APAGAR luz_b;
+INCIDENTE fuga;
+ENCENDER fuga;
+REPORTAR luz_a;
+NIVEL 9;
+SI TEMPERATURA > 30
+ENTONCES APAGAR luz_a;
+FIN
+

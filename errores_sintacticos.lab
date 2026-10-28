@@ -1,0 +1,7 @@
+INCIDENTE fuga_gas
+SENSOR sensor_03;
+LUZ ON luz_principal;
+SI TEMPERATURA > 28
+ENTONCES APAGAR luz_principal;
+NIVEL 4;
+

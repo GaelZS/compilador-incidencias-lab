@@ -1,0 +1,5 @@
+INCIDENTE fuga_gas;
+SENSOR sensor_03;
+NIVEL 4;
+REPORTAR fuga_gas;
+
