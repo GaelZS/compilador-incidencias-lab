@@ -1,0 +1,7 @@
+LUZ luz_1 ON;
+LUZ 3luz OFF;
+sensor sensor_a;
+TEMPERATURA 25$;
+INCIDENTE fuga#2;
+Encender luz_1;
+NIVEL 3;

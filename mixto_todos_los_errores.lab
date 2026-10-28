@@ -1,0 +1,15 @@
+TEMPERATURA 22;
+LUZ luz_principal ON;
+SENSOR sensor_03;
+INCIDENTE fuga_gas;
+LUZ luz_principal OFF;
+NIVEL 9;
+SENSOR temp$4;
+APAGAR luz_sotano;
+REPORTAR fuga_gas
+MOSTRAR TEMPERATURA;
+SI TEMPERATURA > 28
+ENTONCES APAGAR luz_principal;
+FIN
+encender luz_principal;
+

@@ -1,0 +1,17 @@
+TEMPERATURA 30;
+LUZ luz_principal ON;
+LUZ luz_pasillo OFF;
+SENSOR sensor_gas;
+INCIDENTE fuga_gas;
+LUZ luz_principal OFF;
+INCIDENTE sensor_gas;
+ENCENDER luz_cocina;
+APAGAR sensor_gas;
+REPORTAR luz_pasillo;
+REPORTAR fuga_electrica;
+MOSTRAR cafetera;
+NIVEL 0;
+NIVEL 8;
+SI TEMPERATURA > 25
+ENTONCES APAGAR luz_ventana;
+FIN

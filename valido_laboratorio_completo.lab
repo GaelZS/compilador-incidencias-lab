@@ -1,0 +1,21 @@
+TEMPERATURA 24;
+LUZ luz_principal ON;
+LUZ luz_pasillo OFF;
+LUZ luz_laboratorio_2 OFF;
+SENSOR sensor_gas;
+SENSOR sensor_humo;
+INCIDENTE fuga_gas;
+INCIDENTE incendio_menor;
+NIVEL 3;
+ENCENDER luz_pasillo;
+SI TEMPERATURA > 28
+ENTONCES APAGAR luz_principal;
+FIN
+SI TEMPERATURA <= 18
+ENTONCES ENCENDER luz_laboratorio_2;
+FIN;
+MOSTRAR TEMPERATURA;
+MOSTRAR sensor_gas;
+NIVEL 5;
+REPORTAR fuga_gas;
+REPORTAR incendio_menor;
